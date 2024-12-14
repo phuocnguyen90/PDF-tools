@@ -1,0 +1,2 @@
+UPLOAD_FOLDER: uploads
+S3_BUCKET: pdf_files
