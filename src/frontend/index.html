@@ -4,7 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDF Upload and Merge</title>
+
+    <!-- PDF.js for rendering PDFs -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.8.335/pdf.min.js"></script>
+    <!-- SortableJS for drag-and-drop -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+
+    <!-- Load jsPDF UMD build -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        // The UMD build attaches jsPDF to window.jspdf.jsPDF
+        // Extract jsPDF constructor and attach it to window for global access
+        const { jsPDF } = window.jspdf;
+        window.jsPDF = jsPDF;
+    </script>
+</head>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -38,26 +52,12 @@
     </style>
 </head>
 <body>
-    <h1>Upload PDFs and Reorder Pages</h1>
-    <form id="upload-form">
-        <input type="file" id="file-input" name="files" accept="application/pdf" multiple required />
-        <button type="submit">Upload Files</button>
-    </form>
-    
-    <div id="message"></div>
-    
-    <h2>PDF Thumbnails</h2>
-    <div id="thumbnails"></div>
+    <h1>PDF Split, Reorder, and Merge</h1>
 
+    <input type="file" id="file-input" accept="application/pdf" multiple />
+    <div id="thumbnails"></div>
     <button id="merge-btn" disabled>Merge PDFs</button>
 
-    <!-- Load pdf.js from CDN -->
-    
-    
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
-
-    <!-- Your app.js file -->
     <script type="module" src="scripts/app.js"></script>
 </body>
 </html>

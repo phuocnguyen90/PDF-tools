@@ -1,55 +1,124 @@
-import { uploadFiles } from './upload.js';  // Assuming you've separated upload logic
-import { renderThumbnail } from './thumbnail.js';  // Assuming you've separated thumbnail logic
-import { enableDragDrop } from './dragDrop.js';  // Assuming you've separated drag/drop logic
+import { enableDragDrop } from './dragDrop.js';  // Handling drag and drop logic for reordering
 
-let uploadedFiles = [];  // Array to hold the actual file objects
-let orderedFiles = [];   // Array to hold the ordered pages
+let uploadedFiles = [];  // Store the files temporarily
+let orderedFiles = [];   // Store the ordered files after reordering
+let pdfDocuments = [];   // Store the PDF documents (pages) for rendering and manipulation
 
-// Handle file uploads and render thumbnails
-document.getElementById("upload-form").addEventListener("submit", function(event) {
-    event.preventDefault(); // Prevent the default form submission
-
-    const fileInput = document.getElementById("file-input");
-    const files = fileInput.files;
-
-    // Check if files are selected
-    if (files.length === 0) {
-        alert("Please select files to upload.");
-        return;
-    }
-
-    uploadedFiles = Array.from(files); // Store the files for later use
-
-    // Call the uploadFiles function from the module
-    uploadFiles(uploadedFiles, function(data) {
-        if (data.message) {
-            showMessage(data.message, "green");
-            loadThumbnails(uploadedFiles);
-        } else if (data.error) {
-            showMessage(data.error, "red");
+// Handle multiple PDF file selection
+document.getElementById("file-input").addEventListener("change", function(event) {
+    const files = event.target.files;
+    
+    if (files.length > 0) {
+        for (let file of files) {
+            if (file.type === 'application/pdf') {
+                checkForDuplicateFile(file).then(isDuplicate => {
+                    if (isDuplicate) {
+                        // Ask user if they want to add duplicate pages
+                        const confirmAdd = confirm(`The file "${file.name}" is a duplicate. Do you want to add its pages?`);
+                        if (confirmAdd) {
+                            uploadedFiles.push(file);
+                            loadPdf(file);
+                        }
+                    } else {
+                        uploadedFiles.push(file);
+                        loadPdf(file);
+                    }
+                });
+            } else {
+                alert("Please select only PDF files.");
+            }
         }
-    });
+    }
 });
 
-// Load thumbnails after files are uploaded
-function loadThumbnails(files) {
-    const thumbnailsContainer = document.getElementById("thumbnails");
-    thumbnailsContainer.innerHTML = ''; // Clear existing thumbnails
-
-    // Render all thumbnails for each uploaded PDF file
-    files.forEach((file, index) => {
-        renderThumbnail(file, index, function(pageThumbnails) {
-            pageThumbnails.forEach(thumbnail => {
-                thumbnailsContainer.appendChild(thumbnail);
-            });
-        });
+// Check if the uploaded file is a duplicate
+function checkForDuplicateFile(file) {
+    return new Promise((resolve) => {
+        const isDuplicate = uploadedFiles.some(f => f.name === file.name);
+        resolve(isDuplicate);
     });
-
-    // Enable drag-and-drop functionality after thumbnails are rendered
-    enableDragDrop("thumbnails", updateThumbnailOrder);
 }
 
-// Update the thumbnail order after drag-and-drop
+// Load PDF and split into pages
+function loadPdf(file) {
+    const fileReader = new FileReader();
+
+    fileReader.onload = function() {
+        const loadingTask = pdfjsLib.getDocument(fileReader.result);
+        loadingTask.promise.then(function(pdf) {
+            pdfDocuments.push(pdf); // Store the loaded PDF document
+            renderPdfPages(pdf);
+        });
+    };
+
+    fileReader.readAsArrayBuffer(file);
+}
+
+// Render PDF pages as thumbnails
+function renderPdfPages(pdf) {
+    const thumbnailsContainer = document.getElementById("thumbnails");
+    const totalPages = pdf.numPages;
+
+    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+        renderThumbnail(pdf, pageNumber);
+    }
+}
+
+// Render a single page as a thumbnail
+function renderThumbnail(pdf, pageNumber) {
+    pdf.getPage(pageNumber).then(function(page) {
+        const scale = 0.2;  // Scale for thumbnail
+        const viewport = page.getViewport({ scale: scale });
+
+        // Create a canvas to render the page
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        // Render the page into the canvas
+        page.render({ canvasContext: context, viewport: viewport }).promise.then(function() {
+            // Create a div to hold the thumbnail
+            const thumbnailDiv = document.createElement("div");
+            thumbnailDiv.classList.add("thumbnail");
+            thumbnailDiv.setAttribute("data-page", pageNumber);
+
+            const img = document.createElement("img");
+            img.src = canvas.toDataURL();  // Convert canvas to data URL for image
+            img.alt = `file-page${pageNumber}`;
+            thumbnailDiv.appendChild(img);
+
+            // Add delete button to each thumbnail
+            const deleteButton = document.createElement("button");
+            deleteButton.innerText = "Delete";
+            deleteButton.onclick = () => deletePage(thumbnailDiv, `file-page${pageNumber}`);
+            thumbnailDiv.appendChild(deleteButton);
+
+            document.getElementById("thumbnails").appendChild(thumbnailDiv);
+        });
+    });
+}
+
+// Delete a specific page
+function deletePage(thumbnailDiv, pageIdentifier) {
+    // Remove from UI
+    thumbnailDiv.remove();
+
+    // Remove from orderedFiles
+    orderedFiles = orderedFiles.filter(file => file !== pageIdentifier);
+    console.log(`Page ${pageIdentifier} deleted. Updated ordered files:`, orderedFiles);
+
+    // Disable merge button if no pages are ordered
+    const mergeButton = document.getElementById("merge-btn");
+    if (orderedFiles.length === 0) {
+        mergeButton.disabled = true;
+    }
+}
+
+// Enable drag-and-drop reordering
+enableDragDrop("thumbnails", updateThumbnailOrder);
+
+// Update page order after drag-and-drop
 function updateThumbnailOrder(evt) {
     orderedFiles = [];
     const thumbnails = document.querySelectorAll(".thumbnail");
@@ -57,35 +126,49 @@ function updateThumbnailOrder(evt) {
     thumbnails.forEach(thumbnail => {
         const img = thumbnail.querySelector("img");
         if (img) {
-            orderedFiles.push(img.alt); // Using file name and page number as unique identifier
+            orderedFiles.push(img.alt); // Save the order of pages
         }
     });
 
     console.log("Ordered files to send for merging:", orderedFiles);
 
-    // Enable the "Merge PDFs" button when files are reordered
+    // Enable merge button when pages are reordered
     const mergeButton = document.getElementById("merge-btn");
     if (orderedFiles.length > 0) {
-        mergeButton.disabled = false;  // Enable the button when there are ordered files
+        mergeButton.disabled = false;  // Enable the button
     } else {
-        mergeButton.disabled = true;  // Keep the button disabled if no files are ordered
+        mergeButton.disabled = true;  // Disable the button
     }
 }
 
-// Function to trigger PDF merge when the user clicks the "Merge PDF" button
+// Handle merge action on button click
 document.getElementById("merge-btn").addEventListener("click", function() {
     if (orderedFiles.length === 0) {
         alert("Please reorder the pages before merging.");
         return;
     }
 
-    // Send the ordered files to the backend for merging
+    // Send the ordered pages to the backend for merging or use jsPDF if no backend processing is needed
+    if (shouldUseBackendForMerging()) {
+        uploadPagesForMerging();
+    } else {
+        generateMergedPdfOnFrontend();
+    }
+});
+
+// Function to decide if we need the backend for merging (e.g., OCR or editing required)
+function shouldUseBackendForMerging() {
+    return false;  // For now, assuming no backend operations are required
+}
+
+// Upload pages to the backend for merging
+function uploadPagesForMerging() {
     fetch("http://127.0.0.1:5000/merge", {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
         },
-        body: JSON.stringify({ files: orderedFiles })  // Send the ordered pages as JSON
+        body: JSON.stringify({ files: orderedFiles })  // Send the ordered pages
     })
     .then(response => response.blob())  // Expect the merged PDF as a blob
     .then(blob => {
@@ -97,12 +180,33 @@ document.getElementById("merge-btn").addEventListener("click", function() {
     .catch(error => {
         alert("Error merging PDFs. Please try again.");
     });
-});
-
-// Function to display success or error messages
-function showMessage(message, color) {
-    const messageDiv = document.getElementById("message");
-    messageDiv.textContent = message;
-    messageDiv.style.backgroundColor = color;
-    messageDiv.style.display = "block";
 }
+
+// Generate the merged PDF on the frontend using jsPDF
+function generateMergedPdfOnFrontend() {
+    const mergedPdf = new window.jsPDF();  // Access jsPDF globally through the window object
+    
+    orderedFiles.forEach(fileIdentifier => {
+        const [fileName, pageNumber] = fileIdentifier.split('-');
+        const pdfDocument = pdfDocuments.find(pdf => pdf.filename === fileName);
+        
+        if (pdfDocument) {
+            pdfDocument.getPage(parseInt(pageNumber)).then(page => {
+                const scale = 0.2;
+                const viewport = page.getViewport({ scale });
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+
+                page.render({ canvasContext: context, viewport: viewport }).promise.then(() => {
+                    mergedPdf.addImage(canvas.toDataURL(), 'JPEG', 0, 0, viewport.width, viewport.height);
+                    if (orderedFiles.indexOf(fileIdentifier) === orderedFiles.length - 1) {
+                        mergedPdf.save("merged.pdf");
+                    }
+                });
+            });
+        }
+    });
+}
+
